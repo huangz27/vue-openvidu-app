@@ -1,58 +1,226 @@
 <template>
-  <div class="hello">
-    <h1>{{ msg }}</h1>
-    <p>
-      For a guide and recipes on how to configure / customize this project,<br>
-      check out the
-      <a href="https://cli.vuejs.org" target="_blank" rel="noopener">vue-cli documentation</a>.
-    </p>
-    <h3>Installed CLI Plugins</h3>
-    <ul>
-      <li><a href="https://github.com/vuejs/vue-cli/tree/dev/packages/%40vue/cli-plugin-babel" target="_blank" rel="noopener">babel</a></li>
-      <li><a href="https://github.com/vuejs/vue-cli/tree/dev/packages/%40vue/cli-plugin-eslint" target="_blank" rel="noopener">eslint</a></li>
-    </ul>
-    <h3>Essential Links</h3>
-    <ul>
-      <li><a href="https://vuejs.org" target="_blank" rel="noopener">Core Docs</a></li>
-      <li><a href="https://forum.vuejs.org" target="_blank" rel="noopener">Forum</a></li>
-      <li><a href="https://chat.vuejs.org" target="_blank" rel="noopener">Community Chat</a></li>
-      <li><a href="https://twitter.com/vuejs" target="_blank" rel="noopener">Twitter</a></li>
-      <li><a href="https://news.vuejs.org" target="_blank" rel="noopener">News</a></li>
-    </ul>
-    <h3>Ecosystem</h3>
-    <ul>
-      <li><a href="https://router.vuejs.org" target="_blank" rel="noopener">vue-router</a></li>
-      <li><a href="https://vuex.vuejs.org" target="_blank" rel="noopener">vuex</a></li>
-      <li><a href="https://github.com/vuejs/vue-devtools#vue-devtools" target="_blank" rel="noopener">vue-devtools</a></li>
-      <li><a href="https://vue-loader.vuejs.org" target="_blank" rel="noopener">vue-loader</a></li>
-      <li><a href="https://github.com/vuejs/awesome-vue" target="_blank" rel="noopener">awesome-vue</a></li>
-    </ul>
-  </div>
+
+    <div class="container">
+       <!--  <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">Vue Axios Post - ItSolutionStuff.com</div>
+                    <div class="card-body">
+                        <strong>Output:</strong>
+                        <pre>
+
+                        {{output}}
+
+                        </pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+<button type="button" class="btn btn-primary" @click="createSession">Test REST API (return session ID)</button>
+<button type="button" class="btn btn-primary" @click="createToken">Test REST API (return token)</button>
+<button type="button" class="btn btn-primary" @click="joinSession">Join </button> -->
+
+<div id="join" v-show="!joined">
+        <h1>Join a video session</h1>
+        <form @submit.prevent="joinSession">
+            <p>
+                <label>Session:</label>
+                <input type="text" v-model="sessionId" required>
+            </p>
+            <p>
+                <input type="submit" value="JOIN">
+            </p>
+        </form>
+    </div>
+
+  <div id="session" v-show="joined">
+        <h1 v-text="sessionId"></h1>
+        <input type="button" @click="leaveSession" value="LEAVE">
+        <div >
+            <div id ="publisher" class="publisher" ><h3>YOU</h3></div>
+            <div id ="subscriber" class="subscriber"><h3>OTHERS</h3></div>
+        </div>
+    </div>
+ 
+    </div>
+    
+
 </template>
 
+     
+
 <script>
-export default {
-  name: 'HelloWorld',
-  props: {
-    msg: String
-  }
-}
+import { OpenVidu } from 'openvidu-browser';
+
+const OPENVIDU_SERVER_URL = 'https://' + window.location.hostname + ':4443';
+const OPENVIDU_SERVER_SECRET = 'MY_SECRET';
+var OV;
+var session;
+    export default {
+
+        mounted() {
+            console.log('Component mounted.')
+        },
+
+        data() {
+
+            return {
+
+              name: '',
+              description: '',  
+              output: '',
+              joined: false,
+              sessionId: "sessionA",
+
+            };
+
+        },
+
+        methods: {
+            joinSession() {
+            //joinSession(e) {
+              //e.preventDefault(); //either use submit.prevent or pass event 
+              
+              OV = new OpenVidu();
+              session = OV.initSession();
+
+              session.on("streamCreated", function (event) {
+                  session.subscribe(event.stream, "subscriber");
+              });
+
+              this.getToken(this.sessionId).then(token => {
+
+              session.connect(token)
+                .then(() => {
+                    this.joined = true;
+                    var publisher = OV.initPublisher("publisher");
+                    session.publish(publisher);
+                })
+                .catch(error => {
+                    console.log("There was an error connecting to the session:", error.code, error.message);
+                    });
+            });
+            
+            },
+
+            leaveSession() {
+                session.disconnect();
+                this.joined = false;
+            },
+
+            
+
+            getToken(mySessionId) {
+                return this.createSession(mySessionId).then((sessionId) => this.createToken(sessionId));
+            },
+
+            createSession(sessionId) {
+                return new Promise((resolve, reject) => {
+                
+                let currentObj = this;
+                this.axios({
+                    method:'post', 
+                    url: OPENVIDU_SERVER_URL + "/api/sessions",
+                    data: JSON.stringify({ customSessionId: sessionId }),
+                    //data: {"customSessionId": "sessionId" }, 
+                    // auth: {
+                    //         username: "OPENVIDUAPP",
+                    //         password: "MY_SECRET",
+                    //     },
+                    headers: {
+                        "Authorization": "Basic " + btoa("OPENVIDUAPP:" + OPENVIDU_SERVER_SECRET),
+                        "Content-Type": "application/json"
+                    },
+                     
+                })
+                .then(function (response) {
+                    currentObj.output = response.data.id; // for debugging
+                    console.log('CREATE SESION', response);
+                    resolve(response.data.id)
+                })
+                .catch(function (response) {
+
+                    
+                    var error = Object.assign({}, response);
+                    currentObj.output = error.response;  // for debugging
+                     
+                    if (error.response.status === 409) {
+                        resolve(sessionId); //sessionId
+                    } else {
+                        console.log(error);
+                        console.warn(
+                            'No connection to OpenVidu Server. This may be a certificate error at ' +
+                            OPENVIDU_SERVER_URL,
+                        );
+                        if (
+                            window.confirm(
+                                'No connection to OpenVidu Server. This may be a certificate error at "' +
+                                OPENVIDU_SERVER_URL +
+                                '"\n\nClick OK to navigate and accept it. ' +
+                                'If no certificate warning is shown, then check that your OpenVidu Server is up and running at "' +
+                                OPENVIDU_SERVER_URL +
+                                '"',
+                            )
+                        ) {
+                            window.location.assign(OPENVIDU_SERVER_URL + '/accept-certificate');
+                        }
+                    }
+
+                    reject(error)  //not sure of the purpose
+                });
+            });
+            },
+
+            createToken(sessionId) {
+                return new Promise((resolve, reject) => {
+                
+                let currentObj = this;
+                this.axios({
+                    method:'post', 
+                    url: OPENVIDU_SERVER_URL + "/api/tokens",
+                    data: JSON.stringify({ session: sessionId }),
+                    //data: {"session": "sessionId" }, 
+                    // auth: {
+                    //         username: "OPENVIDUAPP",
+                    //         password: "MY_SECRET",
+                    //     },
+                    headers: {
+                        "Authorization": "Basic " + btoa("OPENVIDUAPP:" + OPENVIDU_SERVER_SECRET),
+                        "Content-Type": "application/json"
+                    },
+                     
+                })
+                .then(function (response) {
+                    currentObj.output = response.data.token; // for debugging
+                    console.log('TOKEN', response);
+                    resolve(response.data.id)
+                })
+                .catch(function (error) {
+
+                    currentObj.output = error; // for debugging
+                    reject(error)
+                });
+            });
+            }
+
+        }
+
+    }
+
+
 </script>
 
-<!-- Add "scoped" attribute to limit CSS to this component only -->
 <style scoped>
-h3 {
-  margin: 40px 0 0;
+.publisher {
+    float: left;
+    margin: 10px;
+    width: 40%;
 }
-ul {
-  list-style-type: none;
-  padding: 0;
-}
-li {
-  display: inline-block;
-  margin: 0 10px;
-}
-a {
-  color: #42b983;
+
+.subscriber {
+    float: right;
+    margin: 10px;
+    width: 40%;
 }
 </style>
+
