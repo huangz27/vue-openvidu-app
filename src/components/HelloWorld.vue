@@ -20,31 +20,36 @@
 <button type="button" class="btn btn-primary" @click="createToken">Test REST API (return token)</button>
 <button type="button" class="btn btn-primary" @click="joinSession">Join </button> -->
 
-<div id="join" v-show="!joined">
-        <h1>Join a video session</h1>
-        <form @submit.prevent="joinSession">
-            <p>
-                <label>Session:</label>
-                <input type="text" v-model="sessionId" required>
-            </p>
-            <p>
-                <input type="submit" value="JOIN">
-            </p>
-        </form>
-    </div>
-
-  <div id="session" v-show="joined">
-        <h1 v-text="sessionId"></h1>
-        <input type="button" @click="leaveSession" value="LEAVE">
-        <div >
-            <div id ="publisher" class="publisher" ><h3>YOU</h3></div>
-            <div id ="subscriber" class="subscriber"><h3>OTHERS</h3></div>
+        <div id="join" v-show="!joined">
+            <h1>Join a video session</h1>
+            <form @submit.prevent="joinSession"> 
+                <p>
+                    <label>Session:</label>
+                    <input type="text" v-model="sessionId" required>
+                </p>
+                <p>
+                    <input type="submit" value="JOIN">
+                </p>
+            </form>
         </div>
-    </div>
+
+        <div id="session" v-show="joined">
+            <h1 v-text="sessionId"></h1>
+            <input type="button" @click="leaveSession" value="LEAVE">
+            <button type="button" class="btn btn-primary" @click="start_record">Record Session </button>
+            <button type="button" class="btn btn-primary" @click="stop_record">Stop Recording </button>
+            <div >
+                <div id ="publisher" ><h3>YOU</h3></div>
+                <div id ="subscriber" ><h3>OTHERS</h3></div>
+            </div>
+            <div>
+            <video ref="videoRef" src="" id="video-container" width="30%" controls></video>
+            </div>
+        </div>
+        
  
     </div>
     
-
 </template>
 
      
@@ -60,20 +65,16 @@ var session;
 
         mounted() {
             console.log('Component mounted.')
+            this.$refs.videoRef.src = "https://localhost:4443/recordings/sessionA/sessionA.mp4";
         },
 
         data() {
-
             return {
-
-              name: '',
-              description: '',  
-              output: '',
               joined: false,
               sessionId: "sessionA",
-
+              recordingId: "",
+              timer: ""
             };
-
         },
 
         methods: {
@@ -93,18 +94,20 @@ var session;
               session.connect(token)
                 .then(() => {
                     this.joined = true;
-                    var publisher = OV.initPublisher("publisher");
+                    var resolution_data = (window.innerWidth * 0.4) + "x";  //first half of the resolution is enough
+                    var publisher = OV.initPublisher("publisher", { resolution: resolution_data});
                     session.publish(publisher);
                 })
                 .catch(error => {
                     console.log("There was an error connecting to the session:", error.code, error.message);
                     });
             });
-            
+                // this.timer = setInterval(this.restartRecording, 3000)
             },
 
             leaveSession() {
                 session.disconnect();
+                this.stop_record();
                 this.joined = false;
             },
 
@@ -195,14 +198,61 @@ var session;
                     console.log('TOKEN', response);
                     resolve(response.data.id)
                 })
-                .catch(function (error) {
-
+                .catch (function (error) {
                     currentObj.output = error; // for debugging
                     reject(error)
                 });
             });
-            }
+            },
 
+            start_record() {
+                this.axios({
+                    method:'post', 
+                    url: OPENVIDU_SERVER_URL + "/api/recordings/start",
+                    data: JSON.stringify({ 
+                        session: this.sessionId , 
+                        outputMode: "COMPOSED",  //outputmode must be set to composed to change resolution
+                        resolution: "640x480" }), //default is 1920x1080
+                    headers: {
+                        "Authorization": "Basic " + btoa("OPENVIDUAPP:" + OPENVIDU_SERVER_SECRET),
+                        "Content-Type": "application/json"
+                    },
+                     
+                })
+                .then(response => {
+                    this.recordingId = response.data.id;
+                    console.log("starting recording: " + this.recordingId);
+                })
+                .catch(error => {
+                    var newerror = Object.assign({}, error);
+                     console.log(newerror.status);
+                });
+            },
+            stop_record(){
+
+                this.axios({
+                    method:'post', 
+                    url: OPENVIDU_SERVER_URL + "/api/recordings/stop/" + this.recordingId,
+                    //data: JSON.stringify({ session: this.sessionId }),
+                    headers: {
+                        "Authorization": "Basic " + btoa("OPENVIDUAPP:" + OPENVIDU_SERVER_SECRET),
+                        "Content-Type": "application/json"
+                    },
+                     
+                })
+                .then(response => {
+                    console.log("stopped recording:" + response.data.id);
+                })
+                .catch (error => {
+                    var newerror = Object.assign({}, error);
+                     console.log(newerror.status);
+                });
+            },
+
+            // restartRecording(){
+            //     this.stop_record();
+            //     this.start_record();
+            // }
         }
 
     }
@@ -211,13 +261,13 @@ var session;
 </script>
 
 <style scoped>
-.publisher {
+#publisher {    
     float: left;
     margin: 10px;
     width: 40%;
 }
 
-.subscriber {
+#subscriber {
     float: right;
     margin: 10px;
     width: 40%;
