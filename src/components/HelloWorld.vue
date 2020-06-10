@@ -19,6 +19,8 @@
 <button type="button" class="btn btn-primary" @click="createSession">Test REST API (return session ID)</button>
 <button type="button" class="btn btn-primary" @click="createToken">Test REST API (return token)</button>
 <button type="button" class="btn btn-primary" @click="joinSession">Join </button> -->
+<!-- <button type="button" class="btn btn-primary" @click="logIn">Login </button>  -->
+<!-- <button type="button" class="btn btn-primary" @click="downloadWithAxios">Download </button>  -->
 
         <div id="join" v-show="!joined">
             <h1>Join a video session</h1>
@@ -42,9 +44,9 @@
                 <div id ="publisher" ><h3>YOU</h3></div>
                 <div id ="subscriber" ><h3>OTHERS</h3></div>
             </div>
-            <div>
-            <video ref="videoRef" src="" id="video-container" width="30%" controls></video>
-            </div>
+            <!-- <div id="video-container">
+            <video ref="videoRef" src="" width="30%" controls></video>
+            </div> -->
         </div>
         
  
@@ -57,15 +59,21 @@
 <script>
 import { OpenVidu } from 'openvidu-browser';
 
-const OPENVIDU_SERVER_URL = 'https://' + window.location.hostname + ':4443';
-const OPENVIDU_SERVER_SECRET = 'MY_SECRET';
 var OV;
 var session;
+var token;
+
     export default {
 
         mounted() {
-            console.log('Component mounted.')
-            this.$refs.videoRef.src = "https://localhost:4443/recordings/sessionA/sessionA.mp4";
+            console.log('Component mounted.');
+            console.log(window.location.hostname);
+            // this.$refs.videoRef.src = "https://localhost:4443/recordings/sessionA/sessionA.mp4";
+            window.onbeforeunload = () => { // Gracefully leave session
+                    if (session) {
+                        this.leaveSession();
+                    }
+                }
         },
 
         data() {
@@ -73,7 +81,7 @@ var session;
               joined: false,
               sessionId: "sessionA",
               recordingId: "",
-              timer: ""
+              record_status: false,
             };
         },
 
@@ -81,7 +89,9 @@ var session;
             joinSession() {
             //joinSession(e) {
               //e.preventDefault(); //either use submit.prevent or pass event 
-              
+
+              this.getToken(this.sessionId).then(token => {
+
               OV = new OpenVidu();
               session = OV.initSession();
 
@@ -89,170 +99,188 @@ var session;
                   session.subscribe(event.stream, "subscriber");
               });
 
-              this.getToken(this.sessionId).then(token => {
-
               session.connect(token)
                 .then(() => {
                     this.joined = true;
-                    var resolution_data = (window.innerWidth * 0.4) + "x";  //first half of the resolution is enough
-                    var publisher = OV.initPublisher("publisher", { resolution: resolution_data});
-                    session.publish(publisher);
+                    // var resolution_data = (window.innerWidth * 0.35) + "x";  //first half of the resolution is enough
+                    // var publisher = OV.initPublisher("publisher", { resolution: resolution_data});
+                    // session.publish(publisher);
                 })
                 .catch(error => {
                     console.log("There was an error connecting to the session:", error.code, error.message);
                     });
+            })
+              .catch(error => {
+                console.warn('There was an error connecting to the session:', error.code, error.message);
             });
                 // this.timer = setInterval(this.restartRecording, 3000)
             },
 
             leaveSession() {
+                this.removeUser();
                 session.disconnect();
-                this.stop_record();
+                if (this.record_status) {
+                    this.stop_record(); 
+                }
                 this.joined = false;
             },
 
             
 
             getToken(mySessionId) {
-                return this.createSession(mySessionId).then((sessionId) => this.createToken(sessionId));
-            },
-
-            createSession(sessionId) {
+                // return this.createSession(mySessionId).then((sessionId) => this.createToken(sessionId));
                 return new Promise((resolve, reject) => {
-                
-                let currentObj = this;
-                this.axios({
-                    method:'post', 
-                    url: OPENVIDU_SERVER_URL + "/api/sessions",
-                    data: JSON.stringify({ customSessionId: sessionId }),
-                    //data: {"customSessionId": "sessionId" }, 
-                    // auth: {
-                    //         username: "OPENVIDUAPP",
-                    //         password: "MY_SECRET",
-                    //     },
-                    headers: {
-                        "Authorization": "Basic " + btoa("OPENVIDUAPP:" + OPENVIDU_SERVER_SECRET),
-                        "Content-Type": "application/json"
-                    },
-                     
-                })
-                .then(function (response) {
-                    currentObj.output = response.data.id; // for debugging
-                    console.log('CREATE SESION', response);
-                    resolve(response.data.id)
-                })
-                .catch(function (response) {
-
-                    
-                    var error = Object.assign({}, response);
-                    currentObj.output = error.response;  // for debugging
-                     
-                    if (error.response.status === 409) {
-                        resolve(sessionId); //sessionId
-                    } else {
+                    this.axios({
+                        method:'post', 
+                        url: "https://localhost:5000/api-sessions/get-token",
+                        data: {session_id: mySessionId},
+                        
+                    })
+                    .then(response => {
+                        console.log("logged in with session id:" + mySessionId);
+                        console.log(response.data.token);
+                        token = response.data.token;
+                        resolve(token);
+                    })
+                    .catch(error => {
+                        console.log("error getting token, please try again")
                         console.log(error);
-                        console.warn(
-                            'No connection to OpenVidu Server. This may be a certificate error at ' +
-                            OPENVIDU_SERVER_URL,
-                        );
-                        if (
-                            window.confirm(
-                                'No connection to OpenVidu Server. This may be a certificate error at "' +
-                                OPENVIDU_SERVER_URL +
-                                '"\n\nClick OK to navigate and accept it. ' +
-                                'If no certificate warning is shown, then check that your OpenVidu Server is up and running at "' +
-                                OPENVIDU_SERVER_URL +
-                                '"',
-                            )
-                        ) {
-                            window.location.assign(OPENVIDU_SERVER_URL + '/accept-certificate');
-                        }
-                    }
-
-                    reject(error)  //not sure of the purpose
+                        reject(error);
+                    })
                 });
-            });
             },
 
-            createToken(sessionId) {
-                return new Promise((resolve, reject) => {
-                
-                let currentObj = this;
+            removeUser() {
                 this.axios({
                     method:'post', 
-                    url: OPENVIDU_SERVER_URL + "/api/tokens",
-                    data: JSON.stringify({ session: sessionId }),
-                    //data: {"session": "sessionId" }, 
-                    // auth: {
-                    //         username: "OPENVIDUAPP",
-                    //         password: "MY_SECRET",
-                    //     },
-                    headers: {
-                        "Authorization": "Basic " + btoa("OPENVIDUAPP:" + OPENVIDU_SERVER_SECRET),
-                        "Content-Type": "application/json"
-                    },
-                     
+                    url: "https://localhost:5000/api-sessions/remove-user",
+                    data: {session_id: this.sessionId, token: token},
+                    
                 })
-                .then(function (response) {
-                    currentObj.output = response.data.token; // for debugging
-                    console.log('TOKEN', response);
-                    resolve(response.data.id)
+                .then(response => {
+                    console.warn("You have been removed from session: " + this.sessionId);
+                    console.log(response);      
                 })
-                .catch (function (error) {
-                    currentObj.output = error; // for debugging
-                    reject(error)
-                });
-            });
+                .catch(error => {
+                    console.log('User couldn\'t be removed from session');
+                    console.log(error);
+                })
             },
+
 
             start_record() {
                 this.axios({
                     method:'post', 
-                    url: OPENVIDU_SERVER_URL + "/api/recordings/start",
-                    data: JSON.stringify({ 
-                        session: this.sessionId , 
-                        outputMode: "COMPOSED",  //outputmode must be set to composed to change resolution
-                        resolution: "640x480" }), //default is 1920x1080
-                    headers: {
-                        "Authorization": "Basic " + btoa("OPENVIDUAPP:" + OPENVIDU_SERVER_SECRET),
-                        "Content-Type": "application/json"
-                    },
-                     
-                })
+                    url: "https://localhost:5000/api-recording/start-record",
+                    data: ({ 
+                        session_id: this.sessionId }),   
+                    })
                 .then(response => {
+                    console.log(response);
                     this.recordingId = response.data.id;
-                    console.log("starting recording: " + this.recordingId);
+                    this.record_status = true;
+                    console.log("started recording with recording id:" + this.recordingId);
                 })
                 .catch(error => {
-                    var newerror = Object.assign({}, error);
-                     console.log(newerror.status);
+                    console.error(error)
                 });
             },
-            stop_record(){
 
+            stop_record(){
                 this.axios({
                     method:'post', 
-                    url: OPENVIDU_SERVER_URL + "/api/recordings/stop/" + this.recordingId,
-                    //data: JSON.stringify({ session: this.sessionId }),
-                    headers: {
-                        "Authorization": "Basic " + btoa("OPENVIDUAPP:" + OPENVIDU_SERVER_SECRET),
-                        "Content-Type": "application/json"
-                    },
-                     
+                    url: "https://localhost:5000/api-recording/stop-record",
+                    data: ({ 
+                        record_id: this.recordingId }),   
+                       
                 })
                 .then(response => {
-                    console.log("stopped recording:" + response.data.id);
+                    this.record_status = false;
+                    console.log("stopped recording with recording id:" + response.data.id);
+                    console.log(response);
                 })
-                .catch (error => {
-                    var newerror = Object.assign({}, error);
-                     console.log(newerror.status);
+                .catch(error => {
+                    console.error(error)
                 });
+            
             },
+
+            // forceFileDownload(response){
+            //       const url = window.URL.createObjectURL(new Blob([response.data]))
+            //       const link = document.createElement('a')
+            //       link.href = url
+            //       link.setAttribute('download', 'file.mp4') //or any other extension
+            //       document.body.appendChild(link)
+            //       link.click()
+            // },
+            // downloadWithAxios(){
+            //   this.axios({
+            //     method: 'get',
+            //     url: "https://localhost:4443/recordings/sessionA/sessionA.mp4",
+            //     responseType: 'arraybuffer'
+            //   })
+            //   .then(response => {
+                
+            //     this.forceFileDownload(response)
+                
+            //   })
+            //   .catch(() => console.log('error occured'))
+            // },
 
             // restartRecording(){
             //     this.stop_record();
             //     this.start_record();
             // }
+            // logIn() {
+            //     var user_name = "publisher1"; // Username
+            //     var pass_word = "pass"; // Password
+
+            //     this.axios({
+            //         method:'post', 
+            //         url: "https://localhost:5000/api-login/login",
+            //         data: {user: user_name, pass: pass_word},
+                    
+            //     })
+            //     .then(response => {
+            //         console.log("logged in");
+            //         console.log(response);
+            //     })
+               
+                // var user = "publisher1";
+                // var pass = "pass";
+                // this.httpPostRequest(
+                //     'https://localhost:5000/api-login/login',
+                //     {user: user, pass: pass},
+                //     'Login WRONG',
+                //     (response) => {
+                //         console.log(response)
+                //     }
+                // );
+            // },
+
+            // httpPostRequest(url, body, errorMsg, callback) {
+            //     var http = new XMLHttpRequest();
+            //     http.open('POST', url, true);
+            //     http.setRequestHeader('Content-type', 'application/json');
+            //     http.addEventListener('readystatechange', processRequest, false);
+            //     http.send(JSON.stringify(body));
+
+            //     function processRequest() {
+            //         if (http.readyState == 4) {
+            //             if (http.status == 200) {
+            //                 try {
+            //                     callback(JSON.parse(http.responseText));
+            //                 } catch (e) {
+            //                     callback();
+            //                 }
+            //             } else {
+            //                 console.warn(errorMsg);
+            //                 console.warn(http.responseText);
+            //             }
+            //         }
+            //     }
+            // },
+
         }
 
     }
